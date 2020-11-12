@@ -1,5 +1,5 @@
 # TODO: Remove this once the changes comes into rails version
-# https://github.com/Azure/azure-storage-ruby/issues/166#issuecomment-637696565 
+# https://github.com/Azure/azure-storage-ruby/issues/166#issuecomment-637696565
 # Remove this once the changes comes into rails version
 
 # code from current master : https://github.com/rails/rails/blob/8520cc77133d9ff642e2c393b4ee5eae2a2a28b6/activestorage/lib/active_storage/service/azure_storage_service.rb
@@ -57,7 +57,7 @@ module ActiveStorage
       instrument :delete, key: key do
         client.delete_blob(container, key)
       rescue Azure::Core::Http::HTTPError => e
-        raise unless e.type == "BlobNotFound"
+        raise unless e.type == 'BlobNotFound'
         # Ignore files already deleted
       end
     end
@@ -90,8 +90,8 @@ module ActiveStorage
       instrument :url, key: key do |payload|
         generated_url = signer.signed_uri(
           uri_for(key), false,
-          service: "b",
-          permissions: "rw",
+          service: 'b',
+          permissions: 'rw',
           expiry: format_expiry(expires_in)
         ).to_s
 
@@ -101,70 +101,70 @@ module ActiveStorage
       end
     end
 
-    def headers_for_direct_upload(key, content_type:, checksum:, filename: nil, disposition: nil, **)
+    def headers_for_direct_upload(_key, content_type:, checksum:, filename: nil, disposition: nil, **)
       content_disposition = content_disposition_with(type: disposition, filename: filename) if filename
 
-      { "Content-Type" => content_type, "Content-MD5" => checksum, "x-ms-blob-content-disposition" => content_disposition, "x-ms-blob-type" => "BlockBlob" }
+      { 'Content-Type' => content_type, 'Content-MD5' => checksum, 'x-ms-blob-content-disposition' => content_disposition, 'x-ms-blob-type' => 'BlockBlob' }
     end
 
     private
-      def private_url(key, expires_in:, filename:, disposition:, content_type:, **)
-        signer.signed_uri(
-          uri_for(key), false,
-          service: "b",
-          permissions: "r",
-          expiry: format_expiry(expires_in),
-          content_disposition: content_disposition_with(type: disposition, filename: filename),
-          content_type: content_type
-        ).to_s
+
+    def private_url(key, expires_in:, filename:, disposition:, content_type:, **)
+      signer.signed_uri(
+        uri_for(key), false,
+        service: 'b',
+        permissions: 'r',
+        expiry: format_expiry(expires_in),
+        content_disposition: content_disposition_with(type: disposition, filename: filename),
+        content_type: content_type
+      ).to_s
+    end
+
+    def public_url(key, **)
+      uri_for(key).to_s
+    end
+
+    def uri_for(key)
+      client.generate_uri("#{container}/#{key}")
+    end
+
+    def blob_for(key)
+      client.get_blob_properties(container, key)
+    rescue Azure::Core::Http::HTTPError
+      false
+    end
+
+    def format_expiry(expires_in)
+      expires_in ? Time.now.utc.advance(seconds: expires_in).iso8601 : nil
+    end
+
+    # Reads the object for the given key in chunks, yielding each to the block.
+    def stream(key)
+      blob = blob_for(key)
+
+      chunk_size = 5.megabytes
+      offset = 0
+
+      raise ActiveStorage::FileNotFoundError if blob.blank?
+
+      while offset < blob.properties[:content_length]
+        _, chunk = client.get_blob(container, key, start_range: offset, end_range: offset + chunk_size - 1)
+        yield chunk.force_encoding(Encoding::BINARY)
+        offset += chunk_size
       end
+    end
 
-      def public_url(key, **)
-        uri_for(key).to_s
+    def handle_errors
+      yield
+    rescue Azure::Core::Http::HTTPError => e
+      case e.type
+      when 'BlobNotFound'
+        raise ActiveStorage::FileNotFoundError
+      when 'Md5Mismatch'
+        raise ActiveStorage::IntegrityError
+      else
+        raise
       end
-
-
-      def uri_for(key)
-        client.generate_uri("#{container}/#{key}")
-      end
-
-      def blob_for(key)
-        client.get_blob_properties(container, key)
-      rescue Azure::Core::Http::HTTPError
-        false
-      end
-
-      def format_expiry(expires_in)
-        expires_in ? Time.now.utc.advance(seconds: expires_in).iso8601 : nil
-      end
-
-      # Reads the object for the given key in chunks, yielding each to the block.
-      def stream(key)
-        blob = blob_for(key)
-
-        chunk_size = 5.megabytes
-        offset = 0
-
-        raise ActiveStorage::FileNotFoundError unless blob.present?
-
-        while offset < blob.properties[:content_length]
-          _, chunk = client.get_blob(container, key, start_range: offset, end_range: offset + chunk_size - 1)
-          yield chunk.force_encoding(Encoding::BINARY)
-          offset += chunk_size
-        end
-      end
-
-      def handle_errors
-        yield
-      rescue Azure::Core::Http::HTTPError => e
-        case e.type
-        when "BlobNotFound"
-          raise ActiveStorage::FileNotFoundError
-        when "Md5Mismatch"
-          raise ActiveStorage::IntegrityError
-        else
-          raise
-        end
-      end
+    end
   end
 end
